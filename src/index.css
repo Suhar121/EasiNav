@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
+@import 'tailwindcss';
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: #050507;
+    color: #f4f5f7;
+    font-family: 'Space Grotesk', 'Sora', 'Segoe UI', sans-serif;
+    letter-spacing: 0.01em;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+.futuristic-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 106, 0, 0.5) rgba(255, 255, 255, 0.08);
+}
+
+.futuristic-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.futuristic-scrollbar::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.futuristic-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: linear-gradient(180deg, rgba(255, 106, 0, 0.9), rgba(255, 106, 0, 0.45));
+  background-clip: padding-box;
+}

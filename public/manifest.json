@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "EasiNav",
+  "version": "1.0.0",
+  "description": "A visually beautiful, high-performance bookmark manager that replaces the Chrome new tab page.",
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "permissions": [
+    "storage",
+    "bookmarks",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "quick-save": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Quick Save current tab"
+    }
+  },
+  "action": {
+    "default_title": "EasiNav"
+  }
+}
