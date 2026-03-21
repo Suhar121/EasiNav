@@ -2,7 +2,7 @@
 
 > A visually beautiful, high-performance bookmark manager that replaces your Chrome new tab page.
 
-![EasiNav Dashboard](blob/main/image.png "EasiNav Dashboard")
+![EasiNav Dashboard](./image.png "EasiNav Dashboard")
 *(Note: Replace the image url above with a permanent link to your actual project screenshot `screenshot.png` later!)*
 
 EasiNav transforms your standard Chrome New Tab into a powerful, futuristic, and highly customizable personal dashboard. Designed like a premium SaaS application, it features glassmorphic elements, smooth animations, and a minimal layout to keep your digital space clean.
