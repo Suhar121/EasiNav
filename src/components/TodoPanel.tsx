@@ -5,8 +5,6 @@ import type { FormEvent, PointerEvent } from 'react';
 import type { Position2D, TodoItem } from '../types';
 import { cn } from '../utils/cn';
 
-const DRAG_COMMIT_DISTANCE_PX = 6;
-
 interface TodoPanelProps {
   todos: TodoItem[];
   position: Position2D;
@@ -59,13 +57,6 @@ export function TodoPanel({
       dragMomentum={false}
       whileDrag={{ scale: 1.01, zIndex: 90 }}
       onDragEnd={(_, info) => {
-        if (
-          Math.abs(info.offset.x) < DRAG_COMMIT_DISTANCE_PX &&
-          Math.abs(info.offset.y) < DRAG_COMMIT_DISTANCE_PX
-        ) {
-          return;
-        }
-
         onPositionChange({
           x: position.x + info.offset.x,
           y: position.y + info.offset.y,
@@ -73,20 +64,20 @@ export function TodoPanel({
       }}
       style={{ x: position.x, y: position.y }}
       className={cn(
-        'fixed bottom-5 right-20 z-40 rounded-3xl border border-white/15 bg-black/45 p-4 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.4)] sm:bottom-6 sm:right-[5.5rem]',
-        isMinimized ? 'w-[220px]' : 'w-[300px]'
+        'fixed bottom-4 right-20 z-40 rounded-2xl border border-white/12 bg-black/28 p-3 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.24)] sm:bottom-5 sm:right-[5.25rem]',
+        isMinimized ? 'w-[200px]' : 'w-[300px]'
       )}
     >
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2 text-slate-100">
-          <ListTodo size={16} className="text-[#ff9b58]" />
-          <h3 className="text-sm font-semibold tracking-wide">Todo List</h3>
+          <ListTodo size={14} className="text-slate-300" />
+          <h3 className="text-xs font-semibold tracking-wide">Todo</h3>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onPointerDown={handleDragStart}
-            className="rounded-md border border-white/15 bg-white/5 p-1 text-slate-300 transition-colors hover:text-white"
+            className="rounded-md border border-white/12 bg-black/25 p-1 text-slate-300 transition-colors hover:border-white/20 hover:text-slate-100"
             aria-label="Drag todo card"
             title="Drag card"
           >
@@ -95,7 +86,7 @@ export function TodoPanel({
           <button
             type="button"
             onClick={onToggleMinimize}
-            className="rounded-md border border-white/15 bg-white/5 p-1 text-slate-300 transition-colors hover:text-white"
+            className="rounded-md border border-white/12 bg-black/25 p-1 text-slate-300 transition-colors hover:border-white/20 hover:text-slate-100"
             aria-label={isMinimized ? 'Expand todo card' : 'Minimize todo card'}
             title={isMinimized ? 'Expand' : 'Minimize'}
           >
@@ -105,34 +96,34 @@ export function TodoPanel({
       </div>
 
       {isMinimized ? (
-        <p className="text-xs text-slate-300">{pendingCount} pending tasks</p>
+        <p className="text-[11px] text-slate-300">{pendingCount} pending</p>
       ) : (
         <>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-xs text-slate-300">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-slate-300">
               {pendingCount} pending
             </span>
           </div>
 
-          <form onSubmit={handleSubmit} className="mb-3 flex items-center gap-2">
+          <form onSubmit={handleSubmit} className="mb-2 flex items-center gap-1.5">
             <input
               value={text}
               onChange={(event) => setText(event.target.value)}
               placeholder="Add a task..."
-              className="w-full rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-slate-100 outline-none transition-colors focus:border-[#ff6a00]/60"
+              className="w-full rounded-md border border-white/12 bg-black/25 px-2.5 py-1.5 text-xs text-slate-100 outline-none transition-colors focus:border-white/25"
             />
             <button
               type="submit"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-slate-100 transition-all hover:border-[#ff6a00]/60 hover:text-[#ff9b58]"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/12 bg-black/25 text-slate-100 transition-colors hover:border-white/25 hover:text-slate-100"
               aria-label="Add todo"
             >
               <Plus size={14} />
             </button>
           </form>
 
-          <div className="futuristic-scrollbar max-h-44 space-y-2 overflow-y-auto pr-1">
+          <div className="futuristic-scrollbar max-h-44 space-y-1.5 overflow-y-auto pr-0.5">
             {todos.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-white/20 py-3 text-center text-xs text-slate-400">
+              <p className="rounded-lg border border-dashed border-white/20 py-2.5 text-center text-[11px] text-slate-400">
                 No tasks yet
               </p>
             ) : (
@@ -141,7 +132,7 @@ export function TodoPanel({
                   key={todo.id}
                   layout
                   className={cn(
-                    'flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2',
+                    'flex items-center gap-1.5 rounded-md border border-white/10 bg-black/20 px-2 py-1.5',
                     todo.completed ? 'opacity-70' : ''
                   )}
                 >
@@ -151,8 +142,8 @@ export function TodoPanel({
                     className={cn(
                       'flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors',
                       todo.completed
-                        ? 'border-[#ff6a00]/70 bg-[#ff6a00] text-black'
-                        : 'border-white/20 text-slate-400 hover:border-[#ff6a00]/50 hover:text-[#ff9b58]'
+                        ? 'border-white/25 bg-white/80 text-zinc-900'
+                        : 'border-white/20 text-slate-400 hover:border-white/30 hover:text-slate-200'
                     )}
                     aria-label={todo.completed ? 'Mark as pending' : 'Mark as done'}
                   >
@@ -161,7 +152,7 @@ export function TodoPanel({
 
                   <p
                     className={cn(
-                      'flex-1 text-sm text-slate-100',
+                      'flex-1 text-xs text-slate-100',
                       todo.completed ? 'line-through text-slate-400' : ''
                     )}
                   >

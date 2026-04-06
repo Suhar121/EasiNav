@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { Position2D } from '../types';
 
-const DRAG_COMMIT_DISTANCE_PX = 6;
-
 interface TimeDateCardProps {
   position: Position2D;
   isMinimized: boolean;
@@ -70,31 +68,24 @@ export function TimeDateCard({
       dragMomentum={false}
       whileDrag={{ scale: 1.01, zIndex: 90 }}
       onDragEnd={(_, info) => {
-        if (
-          Math.abs(info.offset.x) < DRAG_COMMIT_DISTANCE_PX &&
-          Math.abs(info.offset.y) < DRAG_COMMIT_DISTANCE_PX
-        ) {
-          return;
-        }
-
         onPositionChange({
           x: position.x + info.offset.x,
           y: position.y + info.offset.y,
         });
       }}
       style={{ x: position.x, y: position.y }}
-      className="fixed right-24 top-28 z-40 w-[240px] rounded-3xl border border-white/15 bg-black/45 p-4 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.4)]"
+      className="fixed right-24 top-24 z-40 w-[240px] rounded-2xl border border-white/12 bg-black/28 p-3 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,0,0,0.24)]"
     >
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2 text-slate-100">
-          <Clock3 size={16} className="text-[#ff9b58]" />
-          <h3 className="text-sm font-semibold tracking-wide">Time</h3>
+          <Clock3 size={14} className="text-slate-300" />
+          <h3 className="text-xs font-semibold tracking-wide">Time</h3>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onPointerDown={handleDragStart}
-            className="rounded-md border border-white/15 bg-white/5 p-1 text-slate-300 transition-colors hover:text-white"
+            className="rounded-md border border-white/12 bg-black/25 p-1 text-slate-300 transition-colors hover:border-white/20 hover:text-slate-100"
             aria-label="Drag time card"
             title="Drag card"
           >
@@ -103,7 +94,7 @@ export function TimeDateCard({
           <button
             type="button"
             onClick={onToggleMinimize}
-            className="rounded-md border border-white/15 bg-white/5 p-1 text-slate-300 transition-colors hover:text-white"
+            className="rounded-md border border-white/12 bg-black/25 p-1 text-slate-300 transition-colors hover:border-white/20 hover:text-slate-100"
             aria-label={isMinimized ? 'Expand time card' : 'Minimize time card'}
             title={isMinimized ? 'Expand' : 'Minimize'}
           >
@@ -115,10 +106,10 @@ export function TimeDateCard({
       {isMinimized ? (
         <p className="text-sm text-slate-200">{timeLabel}</p>
       ) : (
-        <div className="space-y-2">
-          <p className="text-2xl font-semibold text-white">{timeLabel}</p>
+        <div className="space-y-1.5">
+          <p className="text-2xl font-semibold text-slate-100">{timeLabel}</p>
           <div className="flex items-center gap-2 text-sm text-slate-300">
-            <CalendarDays size={14} className="text-[#ff9b58]" />
+            <CalendarDays size={12} className="text-slate-300" />
             <span>{dayLabel}</span>
           </div>
           <p className="text-sm text-slate-300">{dateLabel}</p>

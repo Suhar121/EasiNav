@@ -35,11 +35,11 @@ export function WallpaperButton({ onWallpaperSelected }: WallpaperButtonProps) {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.94 }}
         onClick={() => inputRef.current?.click()}
-        className="group fixed bottom-5 left-4 z-30 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-white/10 text-slate-100 backdrop-blur-2xl transition-all duration-300 hover:border-[#ff6a00]/60 hover:bg-[#ff6a00]/25 hover:text-white hover:shadow-[0_0_28px_rgba(255,106,0,0.5)] sm:bottom-7 sm:left-6"
+        className="group fixed bottom-5 left-4 z-30 flex h-12 w-12 items-center justify-center rounded-xl border border-white/12 bg-black/30 text-slate-200 backdrop-blur-md transition-colors duration-200 hover:border-white/25 hover:bg-white/10 hover:text-white sm:bottom-7 sm:left-6"
         aria-label="Upload wallpaper"
       >
-        <ImagePlus size={21} />
-        <span className="pointer-events-none absolute left-[4.2rem] hidden -translate-x-2 whitespace-nowrap rounded-lg border border-white/15 bg-black/80 px-2.5 py-1 text-xs font-medium text-slate-100 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 lg:block">
+        <ImagePlus size={18} />
+        <span className="pointer-events-none absolute left-[3.7rem] hidden -translate-x-2 whitespace-nowrap rounded-md border border-white/15 bg-black/75 px-2 py-1 text-xs font-medium text-slate-100 opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 lg:block">
           Upload wallpaper
         </span>
       </motion.button>

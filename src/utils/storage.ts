@@ -17,6 +17,11 @@ interface StorageChangedEvent {
 
 type ChromeLike = {
   chrome?: {
+    runtime?: {
+      lastError?: {
+        message?: string;
+      };
+    };
     storage?: {
       local?: StorageShape;
       onChanged?: StorageChangedEvent;
@@ -27,11 +32,17 @@ type ChromeLike = {
 const chromeStorageApi = (globalThis as ChromeLike).chrome?.storage;
 const chromeStorage = chromeStorageApi?.local;
 const chromeStorageOnChanged = chromeStorageApi?.onChanged;
+const chromeRuntime = (globalThis as ChromeLike).chrome?.runtime;
 
 export async function getFromStorage<T>(key: string): Promise<T | undefined> {
   if (chromeStorage) {
     return new Promise((resolve) => {
       chromeStorage.get([key], (result) => {
+        if (chromeRuntime?.lastError) {
+          resolve(undefined);
+          return;
+        }
+
         resolve(result[key] as T | undefined);
       });
     });
@@ -52,11 +63,17 @@ export async function getFromStorage<T>(key: string): Promise<T | undefined> {
 export async function setInStorage<T>(key: string, value: T): Promise<void> {
   if (chromeStorage) {
     return new Promise((resolve) => {
-      chromeStorage.set({ [key]: value }, () => resolve());
+      chromeStorage.set({ [key]: value }, () => {
+        resolve();
+      });
     });
   }
 
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage write errors (quota, private mode restrictions, etc.)
+  }
 }
 
 export function subscribeToStorageKey<T>(

@@ -39,23 +39,24 @@ interface FloatingActionsProps {
   isSettingsOpen: boolean;
 }
 
-export function FloatingActions({
-  onSearch,
-  onDownload,
-  onFilter,
-  onIncognitoToggle,
-  onLayoutToggle,
-  onDeleteModeToggle,
-  onViewModeToggle,
-  onSettings,
-  isSearchActive,
-  isFavoritesFilterActive,
-  isIncognito,
-  isListLayout,
-  isDeleteMode,
-  isCompactView,
-  isSettingsOpen,
-}: FloatingActionsProps) {
+export function FloatingActions(props: FloatingActionsProps) {
+  const {
+    onSearch,
+    onDownload,
+    onFilter,
+    onIncognitoToggle,
+    onLayoutToggle,
+    onDeleteModeToggle,
+    onViewModeToggle,
+    onSettings,
+    isSearchActive,
+    isFavoritesFilterActive,
+    isIncognito,
+    isListLayout,
+    isDeleteMode,
+    isCompactView,
+    isSettingsOpen,
+  } = props;
   const actions: ActionItem[] = [
     { id: 'search', label: 'Search', icon: Search, onClick: onSearch, active: isSearchActive },
     { id: 'download', label: 'Download', icon: Download, onClick: onDownload },
@@ -75,38 +76,42 @@ export function FloatingActions({
       label: 'Settings',
       icon: Settings,
       onClick: onSettings,
-      highlight: true,
       active: isSettingsOpen,
+      highlight: true,
     },
   ];
 
   return (
     <aside className="fixed right-3 top-1/2 z-30 -translate-y-1/2 sm:right-5">
-      <div className="flex flex-col gap-3 rounded-[28px] border border-white/10 bg-black/25 p-2.5 backdrop-blur-2xl">
+      <div className="flex flex-col gap-3">
         {actions.map((action) => {
           const active = Boolean(action.active);
           const highlight = Boolean(action.highlight);
+          const isSettings = action.id === 'settings';
 
           return (
             <motion.button
               key={action.id}
               type="button"
-              whileHover={{ scale: 1.05 }}
+              whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.94 }}
               onClick={action.onClick}
               className={cn(
-                'group relative flex h-12 w-12 items-center justify-center rounded-full border transition-all duration-300',
+                'group relative flex items-center justify-center rounded-full border backdrop-blur-sm transition-all duration-200',
+                isSettings ? 'mt-1 h-12 w-12' : 'h-12 w-12',
                 highlight
-                  ? 'border-[#ff6a00]/70 bg-[#ff6a00] text-black shadow-[0_0_26px_rgba(255,106,0,0.55)]'
+                  ? active
+                    ? 'border-white/25 bg-white/85 text-zinc-900 shadow-[0_4px_18px_rgba(255,255,255,0.22)]'
+                    : 'border-white/22 bg-white/78 text-zinc-900'
                   : active
-                    ? 'border-[#ff6a00]/60 bg-[#ff6a00]/25 text-white shadow-[0_0_20px_rgba(255,106,0,0.35)]'
-                    : 'border-white/15 bg-white/10 text-slate-100 hover:border-[#ff6a00]/60 hover:bg-[#ff6a00]/20 hover:text-white hover:shadow-[0_0_24px_rgba(255,106,0,0.38)]'
+                    ? 'border-white/22 bg-white/15 text-slate-100 shadow-[0_0_18px_rgba(255,255,255,0.08)]'
+                    : 'border-white/16 bg-black/34 text-slate-200 hover:border-white/26 hover:bg-white/12 hover:text-white'
               )}
               aria-label={action.label}
               title={action.label}
             >
               <action.icon size={18} />
-              <span className="pointer-events-none absolute right-[3.35rem] hidden -translate-x-2 whitespace-nowrap rounded-lg border border-white/15 bg-black/80 px-2.5 py-1 text-xs font-medium text-slate-100 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 lg:block">
+              <span className="pointer-events-none absolute right-[3.2rem] hidden -translate-x-2 whitespace-nowrap rounded-md border border-white/15 bg-black/75 px-2 py-1 text-xs font-medium text-slate-100 opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 lg:block">
                 {action.label}
               </span>
             </motion.button>

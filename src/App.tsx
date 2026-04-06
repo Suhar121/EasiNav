@@ -12,14 +12,15 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { motion } from 'framer-motion';
 import {
+  Command,
   Download,
   FileUp,
+  History,
+  Pin,
   Pause,
   Play,
-  Plus,
   RotateCcw,
   Search,
-  Sparkles,
   Upload,
   Volume2,
   X,
@@ -33,17 +34,20 @@ import { Modal } from './components/Modal';
 import { TimeDateCard } from './components/TimeDateCard';
 import { TodoPanel } from './components/TodoPanel';
 import { TopNav } from './components/TopNav';
-import { WallpaperButton } from './components/WallpaperButton';
+import { VaultPanel } from './components/VaultPanel';
 import type {
   AppData,
   AmbientSoundPreset,
+  BoardSizePreset,
   BoardType,
   Bookmark,
   FilterMode,
+  LinkUsageEntry,
   PageType,
   Position2D,
   QuickSavedLink,
   TodoItem,
+  VaultEntry,
   ViewMode,
 } from './types';
 import { AMBIENT_SOUND_PRESETS, createAmbientSoundGraph } from './utils/ambientAudio';
@@ -97,6 +101,21 @@ type EditorState =
   | { type: 'create-bookmark'; boardId: string }
   | { type: 'edit-bookmark'; boardId: string; bookmarkId: string };
 
+interface CommandPaletteItem {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string;
+  run: () => void;
+}
+
+interface VaultPrefillDraft {
+  title: string;
+  website: string;
+  linkedBookmarkUrl?: string;
+  token: string;
+}
+
 const createId = (prefix: string) => {
   const fallback = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
   const uuid = globalThis.crypto?.randomUUID?.() ?? fallback;
@@ -105,9 +124,11 @@ const createId = (prefix: string) => {
 
 const nowIso = () => new Date().toISOString();
 const DEFAULT_TODO_POSITION: Position2D = { x: 0, y: 0 };
+const DEFAULT_VAULT_POSITION: Position2D = { x: 0, y: 0 };
 const DEFAULT_CLOCK_POSITION: Position2D = { x: 0, y: 0 };
 const DEFAULT_SOUND_PRESET: AmbientSoundPreset = 'off';
 const DEFAULT_SOUND_VOLUME = 0.35;
+const DEFAULT_BOARD_SIZE: BoardSizePreset = 'normal';
 
 const SOUND_LABELS: Record<AmbientSoundPreset, string> = {
   off: 'Off',
@@ -136,6 +157,15 @@ const normalizeUrl = (value: string): string => {
   return new URL(withProtocol).toString();
 };
 
+const normalizeOptionalUrl = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return normalizeUrl(trimmed);
+};
+
 const createBookmark = (title: string, url: string, favorite = false, id?: string): Bookmark => ({
   id: id ?? createId('bookmark'),
   title,
@@ -151,6 +181,36 @@ const createTodo = (text: string, id?: string): TodoItem => ({
   text,
   completed: false,
   createdAt: nowIso(),
+});
+
+interface CreateVaultEntryInput {
+  id?: string;
+  title: string;
+  username?: string;
+  password?: string;
+  website?: string;
+  linkedBookmarkUrl?: string;
+  notes?: string;
+}
+
+const createVaultEntry = ({
+  id,
+  title,
+  username,
+  password,
+  website,
+  linkedBookmarkUrl,
+  notes,
+}: CreateVaultEntryInput): VaultEntry => ({
+  id: id ?? createId('vault'),
+  title: title.trim(),
+  username: username?.trim() ?? '',
+  password: password?.trim() ?? '',
+  website,
+  linkedBookmarkUrl,
+  notes: notes?.trim() || undefined,
+  createdAt: nowIso(),
+  updatedAt: nowIso(),
 });
 
 const buildInitialPages = (): PageType[] => [
@@ -219,11 +279,18 @@ const createDefaultAppData = (): AppData => {
     filterMode: 'all',
     isIncognito: false,
     todos: buildInitialTodos(),
+    vaultEntries: [],
+    vaultPasscode: '',
+    isVaultVisible: false,
     boardPositions: {},
+    boardSizes: {},
+    linkUsage: {},
     minimizedBoardIds: [],
     todoPosition: DEFAULT_TODO_POSITION,
+    vaultPosition: DEFAULT_VAULT_POSITION,
     clockPosition: DEFAULT_CLOCK_POSITION,
     isTodoMinimized: false,
+    isVaultMinimized: false,
     isClockMinimized: false,
     soundPreset: DEFAULT_SOUND_PRESET,
     soundVolume: DEFAULT_SOUND_VOLUME,
@@ -258,6 +325,7 @@ const sanitizeBookmark = (raw: unknown): Bookmark | null => {
         ? candidate.icon
         : getFaviconForUrl(normalizedUrl),
     favorite: Boolean(candidate.favorite),
+    pinned: Boolean(candidate.pinned),
     createdAt:
       typeof candidate.createdAt === 'string' && candidate.createdAt ? candidate.createdAt : nowIso(),
     updatedAt:
@@ -281,8 +349,50 @@ const sanitizeBoard = (raw: unknown): BoardType | null => {
       typeof candidate.title === 'string' && candidate.title.trim()
         ? candidate.title.trim()
         : `Board ${Math.floor(Math.random() * 100)}`,
+    pinned: Boolean(candidate.pinned),
     bookmarks,
   };
+};
+
+const sanitizeLinkUsage = (raw: unknown): Record<string, LinkUsageEntry> => {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
+  const next: Record<string, LinkUsageEntry> = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([, value]) => {
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+
+    const candidate = value as Partial<LinkUsageEntry>;
+    if (typeof candidate.url !== 'string' || !candidate.url.trim()) {
+      return;
+    }
+
+    try {
+      const normalizedUrl = normalizeUrl(candidate.url);
+      next[normalizedUrl] = {
+        url: normalizedUrl,
+        title:
+          typeof candidate.title === 'string' && candidate.title.trim()
+            ? candidate.title.trim()
+            : new URL(normalizedUrl).hostname,
+        openCount:
+          typeof candidate.openCount === 'number' && Number.isFinite(candidate.openCount)
+            ? Math.max(0, Math.floor(candidate.openCount))
+            : 0,
+        lastOpenedAt:
+          typeof candidate.lastOpenedAt === 'string' && candidate.lastOpenedAt
+            ? candidate.lastOpenedAt
+            : nowIso(),
+      };
+    } catch {
+      return;
+    }
+  });
+
+  return next;
 };
 
 const sanitizePages = (raw: unknown): PageType[] => {
@@ -342,6 +452,67 @@ const sanitizeTodos = (raw: unknown): TodoItem[] => {
     .filter((todo): todo is TodoItem => todo !== null);
 };
 
+const sanitizeVaultEntries = (raw: unknown): VaultEntry[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((item): VaultEntry | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const candidate = item as Partial<VaultEntry>;
+      if (typeof candidate.title !== 'string' || !candidate.title.trim()) {
+        return null;
+      }
+
+      let website: string | undefined;
+      if (typeof candidate.website === 'string') {
+        try {
+          website = normalizeOptionalUrl(candidate.website);
+        } catch {
+          website = undefined;
+        }
+      }
+
+      let linkedBookmarkUrl: string | undefined;
+      if (typeof candidate.linkedBookmarkUrl === 'string') {
+        try {
+          linkedBookmarkUrl = normalizeOptionalUrl(candidate.linkedBookmarkUrl);
+        } catch {
+          linkedBookmarkUrl = undefined;
+        }
+      }
+
+      return {
+        id: typeof candidate.id === 'string' && candidate.id ? candidate.id : createId('vault'),
+        title: candidate.title.trim(),
+        username:
+          typeof candidate.username === 'string' && candidate.username.trim()
+            ? candidate.username.trim()
+            : '',
+        password:
+          typeof candidate.password === 'string' && candidate.password.trim()
+            ? candidate.password.trim()
+            : '',
+        website,
+        linkedBookmarkUrl,
+        notes: typeof candidate.notes === 'string' && candidate.notes.trim() ? candidate.notes.trim() : undefined,
+        createdAt:
+          typeof candidate.createdAt === 'string' && candidate.createdAt
+            ? candidate.createdAt
+            : nowIso(),
+        updatedAt:
+          typeof candidate.updatedAt === 'string' && candidate.updatedAt
+            ? candidate.updatedAt
+            : nowIso(),
+      };
+    })
+    .filter((entry): entry is VaultEntry => entry !== null);
+};
+
 const sanitizePosition = (raw: unknown, fallback: Position2D): Position2D => {
   if (!raw || typeof raw !== 'object') {
     return fallback;
@@ -362,6 +533,21 @@ const sanitizeBoardPositions = (raw: unknown): Record<string, Position2D> => {
   const entries = Object.entries(raw as Record<string, unknown>)
     .map(([boardId, position]) => [boardId, sanitizePosition(position, { x: 0, y: 0 })] as const);
   return Object.fromEntries(entries);
+};
+
+const sanitizeBoardSizes = (raw: unknown): Record<string, BoardSizePreset> => {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
+  const next: Record<string, BoardSizePreset> = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([boardId, value]) => {
+    if (value === 'compact' || value === 'normal' || value === 'expanded') {
+      next[boardId] = value;
+    }
+  });
+
+  return next;
 };
 
 const sanitizeSoundPreset = (raw: unknown): AmbientSoundPreset =>
@@ -396,9 +582,14 @@ const sanitizeAppData = (raw: unknown): AppData | null => {
   const filterMode: FilterMode = candidate.filterMode === 'favorites' ? 'favorites' : 'all';
   const viewMode: ViewMode = candidate.viewMode === 'compact' ? 'compact' : 'comfortable';
   const todos = sanitizeTodos(candidate.todos);
+  const vaultEntries = sanitizeVaultEntries(candidate.vaultEntries);
+  const vaultPasscode =
+    typeof candidate.vaultPasscode === 'string' ? candidate.vaultPasscode : '';
   const boardPositions = sanitizeBoardPositions(candidate.boardPositions);
+  const boardSizes = sanitizeBoardSizes(candidate.boardSizes);
   const soundPreset = sanitizeSoundPreset(candidate.soundPreset);
   const soundVolume = sanitizeSoundVolume(candidate.soundVolume);
+  const linkUsage = sanitizeLinkUsage(candidate.linkUsage);
   const minimizedBoardIds = Array.isArray(candidate.minimizedBoardIds)
     ? candidate.minimizedBoardIds.filter((item): item is string => typeof item === 'string')
     : [];
@@ -415,11 +606,18 @@ const sanitizeAppData = (raw: unknown): AppData | null => {
     filterMode,
     isIncognito: Boolean(candidate.isIncognito),
     todos: todos.length ? todos : buildInitialTodos(),
+    vaultEntries,
+    vaultPasscode,
+    isVaultVisible: Boolean(candidate.isVaultVisible),
     boardPositions,
+    boardSizes,
+    linkUsage,
     minimizedBoardIds,
     todoPosition: sanitizePosition(candidate.todoPosition, DEFAULT_TODO_POSITION),
+    vaultPosition: sanitizePosition(candidate.vaultPosition, DEFAULT_VAULT_POSITION),
     clockPosition: sanitizePosition(candidate.clockPosition, DEFAULT_CLOCK_POSITION),
     isTodoMinimized: Boolean(candidate.isTodoMinimized),
+    isVaultMinimized: Boolean(candidate.isVaultMinimized),
     isClockMinimized: Boolean(candidate.isClockMinimized),
     soundPreset,
     soundVolume,
@@ -548,13 +746,20 @@ function App() {
   const [filterMode, setFilterMode] = useState<FilterMode>(defaultData.filterMode);
   const [isIncognito, setIsIncognito] = useState(defaultData.isIncognito);
   const [todos, setTodos] = useState<TodoItem[]>(defaultData.todos);
+  const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>(defaultData.vaultEntries);
+  const [vaultPasscode, setVaultPasscode] = useState(defaultData.vaultPasscode);
+  const [isVaultVisible, setIsVaultVisible] = useState(defaultData.isVaultVisible);
   const [boardPositions, setBoardPositions] = useState<Record<string, Position2D>>(
     defaultData.boardPositions
   );
+  const [boardSizes, setBoardSizes] = useState<Record<string, BoardSizePreset>>(defaultData.boardSizes);
+  const [linkUsage, setLinkUsage] = useState<Record<string, LinkUsageEntry>>(defaultData.linkUsage);
   const [minimizedBoardIds, setMinimizedBoardIds] = useState<string[]>(defaultData.minimizedBoardIds);
   const [todoPosition, setTodoPosition] = useState<Position2D>(defaultData.todoPosition);
+  const [vaultPosition, setVaultPosition] = useState<Position2D>(defaultData.vaultPosition);
   const [clockPosition, setClockPosition] = useState<Position2D>(defaultData.clockPosition);
   const [isTodoMinimized, setIsTodoMinimized] = useState(defaultData.isTodoMinimized);
+  const [isVaultMinimized, setIsVaultMinimized] = useState(defaultData.isVaultMinimized);
   const [isClockMinimized, setIsClockMinimized] = useState(defaultData.isClockMinimized);
   const [soundPreset, setSoundPreset] = useState<AmbientSoundPreset>(defaultData.soundPreset);
   const [soundVolume, setSoundVolume] = useState(defaultData.soundVolume);
@@ -563,6 +768,7 @@ function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -571,9 +777,20 @@ function App() {
   const [formUrl, setFormUrl] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
+  const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
+  const [vaultPrefillDraft, setVaultPrefillDraft] = useState<VaultPrefillDraft | null>(null);
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(!defaultData.vaultPasscode);
+  const [vaultPasscodeDraft, setVaultPasscodeDraft] = useState('');
+  const [vaultUnlockDraft, setVaultUnlockDraft] = useState('');
+  const [isVaultUnlockModalOpen, setIsVaultUnlockModalOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const linkSearchInputRef = useRef<HTMLInputElement>(null);
+  const commandPaletteInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const isApplyingExternalStorageRef = useRef(false);
   const lastPersistedSnapshotRef = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -581,7 +798,7 @@ function App() {
   const stopAmbientSoundRef = useRef<(() => void) | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -626,11 +843,19 @@ function App() {
       setFilterMode(restored.filterMode);
       setIsIncognito(restored.isIncognito);
       setTodos(restored.todos);
+      setVaultEntries(restored.vaultEntries);
+      setVaultPasscode(restored.vaultPasscode);
+      setIsVaultVisible(restored.isVaultVisible);
+      setIsVaultUnlocked(!restored.vaultPasscode);
       setBoardPositions(restored.boardPositions);
+      setBoardSizes(restored.boardSizes);
+      setLinkUsage(restored.linkUsage);
       setMinimizedBoardIds(restored.minimizedBoardIds);
       setTodoPosition(restored.todoPosition);
+      setVaultPosition(restored.vaultPosition);
       setClockPosition(restored.clockPosition);
       setIsTodoMinimized(restored.isTodoMinimized);
+      setIsVaultMinimized(restored.isVaultMinimized);
       setIsClockMinimized(restored.isClockMinimized);
       setSoundPreset(restored.soundPreset);
       setSoundVolume(restored.soundVolume);
@@ -675,11 +900,19 @@ function App() {
       setFilterMode(restored.filterMode);
       setIsIncognito(restored.isIncognito);
       setTodos(restored.todos);
+      setVaultEntries(restored.vaultEntries);
+      setVaultPasscode(restored.vaultPasscode);
+      setIsVaultVisible(restored.isVaultVisible);
+      setIsVaultUnlocked(!restored.vaultPasscode);
       setBoardPositions(restored.boardPositions);
+      setBoardSizes(restored.boardSizes);
+      setLinkUsage(restored.linkUsage);
       setMinimizedBoardIds(restored.minimizedBoardIds);
       setTodoPosition(restored.todoPosition);
+      setVaultPosition(restored.vaultPosition);
       setClockPosition(restored.clockPosition);
       setIsTodoMinimized(restored.isTodoMinimized);
+      setIsVaultMinimized(restored.isVaultMinimized);
       setIsClockMinimized(restored.isClockMinimized);
       setSoundPreset(restored.soundPreset);
       setSoundVolume(restored.soundVolume);
@@ -709,11 +942,18 @@ function App() {
       filterMode,
       isIncognito,
       todos,
+      vaultEntries,
+      vaultPasscode,
+      isVaultVisible,
       boardPositions,
+      boardSizes,
+      linkUsage,
       minimizedBoardIds,
       todoPosition,
+      vaultPosition,
       clockPosition,
       isTodoMinimized,
+      isVaultMinimized,
       isClockMinimized,
       soundPreset,
       soundVolume,
@@ -725,6 +965,7 @@ function App() {
   }, [
     activePageId,
     boardPositions,
+    boardSizes,
     clockPosition,
     filterMode,
     isClockMinimized,
@@ -732,13 +973,19 @@ function App() {
     isIncognito,
     isSoundEnabled,
     isTodoMinimized,
+    isVaultMinimized,
+    isVaultVisible,
     layoutMode,
+    linkUsage,
     minimizedBoardIds,
     pages,
     soundPreset,
     soundVolume,
     todoPosition,
     todos,
+    vaultPasscode,
+    vaultEntries,
+    vaultPosition,
     viewMode,
     wallpaper,
   ]);
@@ -750,6 +997,64 @@ function App() {
 
     searchInputRef.current?.focus();
   }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    const focusLinkSearch = () => {
+      if (editor || isSettingsOpen || isCommandPaletteOpen) {
+        return;
+      }
+
+      linkSearchInputRef.current?.focus();
+    };
+
+    const timeout = window.setTimeout(focusLinkSearch, 70);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        focusLinkSearch();
+      }
+    };
+
+    window.addEventListener('focus', focusLinkSearch);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('focus', focusLinkSearch);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [editor, isCommandPaletteOpen, isHydrated, isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isCommandPaletteOpen) {
+      return;
+    }
+
+    commandPaletteInputRef.current?.focus();
+  }, [isCommandPaletteOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsCommandPaletteOpen((value) => !value);
+        setCommandPaletteQuery('');
+        setCommandPaletteIndex(0);
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (isIncognito && viewMode !== 'compact') {
@@ -859,8 +1164,11 @@ function App() {
             ? board.bookmarks.filter((bookmark) => bookmark.favorite)
             : board.bookmarks;
 
+        const sortPinnedBookmarks = (bookmarks: Bookmark[]) =>
+          [...bookmarks].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+
         if (!query) {
-          return { ...board, bookmarks: boardBookmarks };
+          return { ...board, bookmarks: sortPinnedBookmarks(boardBookmarks) };
         }
 
         const boardTitleMatch = board.title.toLowerCase().includes(query);
@@ -870,7 +1178,7 @@ function App() {
               `${bookmark.title} ${bookmark.url}`.toLowerCase().includes(query)
             );
 
-        return { ...board, bookmarks: matchingBookmarks };
+        return { ...board, bookmarks: sortPinnedBookmarks(matchingBookmarks) };
       })
       .filter((board) => {
         if (!query) {
@@ -883,23 +1191,134 @@ function App() {
             `${bookmark.title} ${bookmark.url}`.toLowerCase().includes(query)
           )
         );
-      });
+      })
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
   }, [activePage, filterMode, searchQuery]);
 
+  const bookmarkByUrl = useMemo(() => {
+    const map = new Map<string, Bookmark>();
+    if (!activePage) {
+      return map;
+    }
+
+    activePage.boards.forEach((board) => {
+      board.bookmarks.forEach((bookmark) => {
+        if (!map.has(bookmark.url)) {
+          map.set(bookmark.url, bookmark);
+        }
+      });
+    });
+
+    return map;
+  }, [activePage]);
+
+  const vaultAttachmentCountByUrl = useMemo(() => {
+    const next: Record<string, number> = {};
+    vaultEntries.forEach((entry) => {
+      if (!entry.linkedBookmarkUrl) {
+        return;
+      }
+
+      next[entry.linkedBookmarkUrl] = (next[entry.linkedBookmarkUrl] ?? 0) + 1;
+    });
+    return next;
+  }, [vaultEntries]);
+
+  const recentLinks = useMemo(() => {
+    return Object.values(linkUsage)
+      .filter((entry) => bookmarkByUrl.has(entry.url))
+      .sort(
+        (a, b) =>
+          new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime()
+      )
+      .slice(0, 6)
+      .map((entry) => ({
+        usage: entry,
+        bookmark: bookmarkByUrl.get(entry.url)!,
+      }));
+  }, [bookmarkByUrl, linkUsage]);
+
+  const linkSearchResults = useMemo(() => {
+    const query = linkSearchQuery.trim().toLowerCase();
+    if (!query || !activePage) {
+      return [] as Array<{ boardTitle: string; bookmark: Bookmark }>;
+    }
+
+    const matches: Array<{ boardTitle: string; bookmark: Bookmark }> = [];
+
+    activePage.boards.forEach((board) => {
+      board.bookmarks.forEach((bookmark) => {
+        const haystack = `${bookmark.title} ${bookmark.url}`.toLowerCase();
+        if (haystack.includes(query)) {
+          matches.push({
+            boardTitle: board.title,
+            bookmark,
+          });
+        }
+      });
+    });
+
+    return matches
+      .sort((a, b) => {
+        const pinDiff = Number(Boolean(b.bookmark.pinned)) - Number(Boolean(a.bookmark.pinned));
+        if (pinDiff !== 0) {
+          return pinDiff;
+        }
+
+        return a.bookmark.title.localeCompare(b.bookmark.title);
+      })
+      .slice(0, 12);
+  }, [activePage, linkSearchQuery]);
+
   const totalBoards = activePage?.boards.length ?? 0;
-  const totalLinks = useMemo(
-    () => activePage?.boards.reduce((count, board) => count + board.bookmarks.length, 0) ?? 0,
-    [activePage]
-  );
-  const visibleLinks = useMemo(
-    () => visibleBoards.reduce((count, board) => count + board.bookmarks.length, 0),
-    [visibleBoards]
-  );
+
+  const handleSelectBoardForNewLink = (boardId: string) => {
+    openCreateBookmarkEditor(boardId);
+  };
+
+  const handleOpenBookmark = (boardId: string, bookmarkId: string) => {
+    const board = activePage?.boards.find((item) => item.id === boardId);
+    const bookmark = board?.bookmarks.find((item) => item.id === bookmarkId);
+    if (!bookmark) {
+      return;
+    }
+
+    openBookmarkUrl(bookmark);
+  };
+
+  const handleAttachBookmarkToVault = (boardId: string, bookmarkId: string) => {
+    const board = activePage?.boards.find((item) => item.id === boardId);
+    const bookmark = board?.bookmarks.find((item) => item.id === bookmarkId);
+    if (!bookmark) {
+      return;
+    }
+
+    if (vaultPasscode && !isVaultUnlocked) {
+      setIsVaultUnlockModalOpen(true);
+      setToast('Unlock vault to attach credentials');
+      return;
+    }
+
+    setVaultPrefillDraft({
+      title: bookmark.title,
+      website: bookmark.url,
+      linkedBookmarkUrl: bookmark.url,
+      token: `${bookmark.id}-${Date.now()}`,
+    });
+    setIsVaultVisible(true);
+    setIsVaultMinimized(false);
+    setToast(`Vault linked to "${bookmark.title}"`);
+  };
+
+  const getBookmarkAttachmentCount = (bookmarkUrl: string): number =>
+    vaultAttachmentCountByUrl[bookmarkUrl] ?? 0;
 
   const dragDisabled = Boolean(searchQuery.trim()) || filterMode === 'favorites';
   const compactBlur = viewMode === 'compact';
 
   const getBoardPosition = (boardId: string): Position2D => boardPositions[boardId] ?? { x: 0, y: 0 };
+  const getBoardSizePreset = (boardId: string): BoardSizePreset =>
+    boardSizes[boardId] ?? DEFAULT_BOARD_SIZE;
   const isBoardMinimized = (boardId: string): boolean => minimizedBoardIds.includes(boardId);
 
   const updateActivePage = (updater: (page: PageType) => PageType) => {
@@ -944,17 +1363,6 @@ function App() {
 
   const openCreateBookmarkEditor = (boardId: string) => {
     openEditor({ type: 'create-bookmark', boardId }, '', '');
-  };
-
-  const handleQuickLink = () => {
-    const targetBoardId = activePage?.boards[0]?.id;
-    if (targetBoardId) {
-      openCreateBookmarkEditor(targetBoardId);
-      return;
-    }
-
-    openCreateBoardEditor();
-    setToast('Create a board first, then add links');
   };
 
   const openEditBookmarkEditor = (boardId: string, bookmarkId: string) => {
@@ -1024,6 +1432,11 @@ function App() {
       delete next[boardId];
       return next;
     });
+    setBoardSizes((current) => {
+      const next = { ...current };
+      delete next[boardId];
+      return next;
+    });
     setMinimizedBoardIds((current) => current.filter((id) => id !== boardId));
     setToast(`Deleted board "${board.title}"`);
   };
@@ -1056,6 +1469,26 @@ function App() {
     setToast(`Deleted "${bookmark.title}"`);
   };
 
+  const recordLinkOpen = (bookmark: Bookmark) => {
+    setLinkUsage((current) => {
+      const currentEntry = current[bookmark.url];
+      return {
+        ...current,
+        [bookmark.url]: {
+          url: bookmark.url,
+          title: bookmark.title,
+          openCount: (currentEntry?.openCount ?? 0) + 1,
+          lastOpenedAt: nowIso(),
+        },
+      };
+    });
+  };
+
+  const openBookmarkUrl = (bookmark: Bookmark) => {
+    recordLinkOpen(bookmark);
+    openUrlInNewTab(bookmark.url);
+  };
+
   const handleToggleBookmarkFavorite = (boardId: string, bookmarkId: string) => {
     updateActivePage((page) => ({
       ...page,
@@ -1073,6 +1506,42 @@ function App() {
                       updatedAt: nowIso(),
                     }
               ),
+            }
+      ),
+    }));
+  };
+
+  const handleToggleBookmarkPinned = (boardId: string, bookmarkId: string) => {
+    updateActivePage((page) => ({
+      ...page,
+      boards: page.boards.map((boardItem) =>
+        boardItem.id !== boardId
+          ? boardItem
+          : {
+              ...boardItem,
+              bookmarks: boardItem.bookmarks.map((bookmark) =>
+                bookmark.id !== bookmarkId
+                  ? bookmark
+                  : {
+                      ...bookmark,
+                      pinned: !bookmark.pinned,
+                      updatedAt: nowIso(),
+                    }
+              ),
+            }
+      ),
+    }));
+  };
+
+  const handleToggleBoardPinned = (boardId: string) => {
+    updateActivePage((page) => ({
+      ...page,
+      boards: page.boards.map((board) =>
+        board.id !== boardId
+          ? board
+          : {
+              ...board,
+              pinned: !board.pinned,
             }
       ),
     }));
@@ -1166,11 +1635,252 @@ function App() {
     setTodos((current) => current.filter((todo) => todo.id !== todoId));
   };
 
+  const handleAddVaultEntry = ({
+    title,
+    username,
+    password,
+    website,
+    linkedBookmarkUrl,
+    notes,
+  }: {
+    title: string;
+    username: string;
+    password: string;
+    website: string;
+    linkedBookmarkUrl?: string;
+    notes: string;
+  }): boolean => {
+    if (vaultPasscode && !isVaultUnlocked) {
+      setToast('Vault is locked. Unlock it from Settings first.');
+      return false;
+    }
+
+    const normalizedTitle = title.trim();
+    const normalizedUsername = username.trim();
+    const normalizedPassword = password.trim();
+    const normalizedNotes = notes.trim();
+
+    if (!normalizedTitle) {
+      setToast('Service title is required');
+      return false;
+    }
+
+    if (!normalizedUsername && !normalizedPassword && !normalizedNotes && !website.trim()) {
+      setToast('Add at least one detail (user, password, note, or website)');
+      return false;
+    }
+
+    let normalizedWebsite: string | undefined;
+    try {
+      normalizedWebsite = normalizeOptionalUrl(website);
+    } catch {
+      setToast('Please enter a valid website URL');
+      return false;
+    }
+
+    let normalizedLinkedBookmarkUrl: string | undefined;
+    try {
+      normalizedLinkedBookmarkUrl = normalizeOptionalUrl(linkedBookmarkUrl ?? '');
+    } catch {
+      normalizedLinkedBookmarkUrl = undefined;
+    }
+
+    setVaultEntries((current) => [
+      createVaultEntry({
+        title: normalizedTitle,
+        username: normalizedUsername,
+        password: normalizedPassword,
+        website: normalizedWebsite,
+        linkedBookmarkUrl: normalizedLinkedBookmarkUrl,
+        notes: normalizedNotes,
+      }),
+      ...current,
+    ]);
+    setIsVaultVisible(true);
+    setToast(`Saved "${normalizedTitle}"`);
+    return true;
+  };
+
+  const handleDeleteVaultEntry = (entryId: string) => {
+    const entry = vaultEntries.find((item) => item.id === entryId);
+    setVaultEntries((current) => current.filter((item) => item.id !== entryId));
+    setToast(entry ? `Removed "${entry.title}"` : 'Entry removed');
+  };
+
+  const handleOpenVaultWebsite = (entryId: string) => {
+    const entry = vaultEntries.find((item) => item.id === entryId);
+    if (!entry?.website) {
+      return;
+    }
+
+    const chromeTabs = (
+      globalThis as {
+        chrome?: {
+          tabs?: {
+            create?: (createProperties: { url?: string; active?: boolean }, callback?: () => void) => void;
+          };
+        };
+      }
+    ).chrome?.tabs;
+
+    if (chromeTabs?.create) {
+      chromeTabs.create({ url: entry.website, active: true });
+      return;
+    }
+
+    globalThis.open?.(entry.website, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyVaultValue = (value: string, label: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setToast(`${label} is empty`);
+      return;
+    }
+
+    const fallbackCopy = () => {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = trimmed;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setToast(`${label} copied`);
+      } catch {
+        setToast(`Unable to copy ${label.toLowerCase()}`);
+      }
+    };
+
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(trimmed)
+        .then(() => {
+          setToast(`${label} copied`);
+        })
+        .catch(() => {
+          fallbackCopy();
+        });
+      return;
+    }
+
+    fallbackCopy();
+  };
+
+  const handleSaveVaultPasscode = () => {
+    const nextPasscode = vaultPasscodeDraft.trim();
+    if (nextPasscode.length < 4) {
+      setToast('Vault password must be at least 4 characters');
+      return;
+    }
+
+    const isUpdating = Boolean(vaultPasscode);
+    setVaultPasscode(nextPasscode);
+    setVaultPasscodeDraft('');
+    setVaultUnlockDraft('');
+    setIsVaultUnlocked(false);
+    setIsVaultVisible(false);
+    setIsVaultUnlockModalOpen(false);
+    setToast(isUpdating ? 'Vault password updated' : 'Vault password set');
+  };
+
+  const handleUnlockVault = (): boolean => {
+    if (!vaultPasscode) {
+      setIsVaultUnlocked(true);
+      setIsVaultVisible(true);
+      setIsVaultUnlockModalOpen(false);
+      return true;
+    }
+
+    if (vaultUnlockDraft !== vaultPasscode) {
+      setToast('Incorrect vault password');
+      return false;
+    }
+
+    setVaultUnlockDraft('');
+    setIsVaultUnlocked(true);
+    setIsVaultVisible(true);
+    setIsVaultUnlockModalOpen(false);
+    setToast('Vault unlocked');
+    return true;
+  };
+
+  const handleLockVault = () => {
+    if (!vaultPasscode) {
+      return;
+    }
+
+    setIsVaultUnlocked(false);
+    setIsVaultVisible(false);
+    setVaultUnlockDraft('');
+    setIsVaultUnlockModalOpen(false);
+    setToast('Vault locked');
+  };
+
+  const handleVaultHeaderLock = () => {
+    if (!vaultPasscode) {
+      setToast('Set a vault password in Settings to enable locking');
+      return;
+    }
+
+    handleLockVault();
+  };
+
+  const handleRemoveVaultPasscode = () => {
+    setVaultPasscode('');
+    setVaultPasscodeDraft('');
+    setVaultUnlockDraft('');
+    setIsVaultUnlockModalOpen(false);
+    setIsVaultUnlocked(true);
+    setToast('Vault password removed');
+  };
+
+  const handleToggleVaultVisibility = () => {
+    if (vaultPasscode && !isVaultUnlocked) {
+      setIsVaultUnlockModalOpen(true);
+      setToast('Enter vault password to open');
+      return;
+    }
+
+    setIsVaultVisible((current) => !current);
+  };
+
   const handleBoardPositionChange = (boardId: string, nextPosition: Position2D) => {
     setBoardPositions((current) => ({
       ...current,
       [boardId]: nextPosition,
     }));
+  };
+
+  const handleBoardSizeChange = (boardId: string, preset: BoardSizePreset) => {
+    if (preset === 'normal') {
+      setBoardSizes((current) => {
+        const next = { ...current };
+        delete next[boardId];
+        return next;
+      });
+      return;
+    }
+
+    setBoardSizes((current) => ({
+      ...current,
+      [boardId]: preset,
+    }));
+  };
+
+  const handleResetBoardSize = (boardId: string) => {
+    setBoardSizes((current) => {
+      if (!(boardId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[boardId];
+      return next;
+    });
   };
 
   const handleToggleBoardMinimize = (boardId: string) => {
@@ -1200,11 +1910,18 @@ function App() {
       filterMode,
       isIncognito,
       todos,
+      vaultEntries,
+      vaultPasscode,
+      isVaultVisible,
       boardPositions,
+      boardSizes,
+      linkUsage,
       minimizedBoardIds,
       todoPosition,
+      vaultPosition,
       clockPosition,
       isTodoMinimized,
+      isVaultMinimized,
       isClockMinimized,
       soundPreset,
       soundVolume,
@@ -1239,11 +1956,19 @@ function App() {
       setFilterMode(restored.filterMode);
       setIsIncognito(restored.isIncognito);
       setTodos(restored.todos);
+      setVaultEntries(restored.vaultEntries);
+      setVaultPasscode(restored.vaultPasscode);
+      setIsVaultVisible(restored.isVaultVisible);
+      setIsVaultUnlocked(!restored.vaultPasscode);
       setBoardPositions(restored.boardPositions);
+      setBoardSizes(restored.boardSizes);
+      setLinkUsage(restored.linkUsage);
       setMinimizedBoardIds(restored.minimizedBoardIds);
       setTodoPosition(restored.todoPosition);
+      setVaultPosition(restored.vaultPosition);
       setClockPosition(restored.clockPosition);
       setIsTodoMinimized(restored.isTodoMinimized);
+      setIsVaultMinimized(restored.isVaultMinimized);
       setIsClockMinimized(restored.isClockMinimized);
       setSoundPreset(restored.soundPreset);
       setSoundVolume(restored.soundVolume);
@@ -1301,11 +2026,22 @@ function App() {
     setFilterMode(defaults.filterMode);
     setIsIncognito(defaults.isIncognito);
     setTodos(defaults.todos);
+    setVaultEntries(defaults.vaultEntries);
+    setVaultPasscode(defaults.vaultPasscode);
+    setIsVaultVisible(defaults.isVaultVisible);
+    setIsVaultUnlocked(!defaults.vaultPasscode);
+    setVaultPasscodeDraft('');
+    setVaultUnlockDraft('');
+    setIsVaultUnlockModalOpen(false);
     setBoardPositions(defaults.boardPositions);
+    setBoardSizes(defaults.boardSizes);
+    setLinkUsage(defaults.linkUsage);
     setMinimizedBoardIds(defaults.minimizedBoardIds);
     setTodoPosition(defaults.todoPosition);
+    setVaultPosition(defaults.vaultPosition);
     setClockPosition(defaults.clockPosition);
     setIsTodoMinimized(defaults.isTodoMinimized);
+    setIsVaultMinimized(defaults.isVaultMinimized);
     setIsClockMinimized(defaults.isClockMinimized);
     setSoundPreset(defaults.soundPreset);
     setSoundVolume(defaults.soundVolume);
@@ -1427,6 +2163,114 @@ function App() {
     } catch {
       setFormError('Please enter a valid URL.');
     }
+  };
+
+  const commandPaletteItems: CommandPaletteItem[] = [];
+
+  commandPaletteItems.push(
+    {
+      id: 'create-page',
+      label: 'Create page',
+      description: 'Add a new workspace page',
+      keywords: 'create page add workspace',
+      run: openCreatePageEditor,
+    },
+    {
+      id: 'create-board',
+      label: 'Create board',
+      description: 'Add a new board to current page',
+      keywords: 'create board add section',
+      run: openCreateBoardEditor,
+    },
+    {
+      id: 'toggle-favorites',
+      label: filterMode === 'favorites' ? 'Show all links' : 'Show favorites only',
+      description: 'Toggle favorites filter',
+      keywords: 'favorites filter toggle',
+      run: () => setFilterMode((mode) => (mode === 'all' ? 'favorites' : 'all')),
+    },
+    {
+      id: 'toggle-search',
+      label: isSearchOpen ? 'Close search' : 'Open search',
+      description: 'Toggle search bar',
+      keywords: 'search find query',
+      run: () => setIsSearchOpen((value) => !value),
+    }
+  );
+
+  pages.forEach((page) => {
+    commandPaletteItems.push({
+      id: `switch-page-${page.id}`,
+      label: `Go to page: ${page.title}`,
+      description: 'Switch active page',
+      keywords: `page switch ${page.title}`,
+      run: () => setActivePageId(page.id),
+    });
+  });
+
+  if (activePage) {
+    activePage.boards.forEach((board) => {
+      commandPaletteItems.push({
+        id: `new-link-${board.id}`,
+        label: `Add link to ${board.title}`,
+        description: 'Create bookmark in selected board',
+        keywords: `link bookmark add ${board.title}`,
+        run: () => handleSelectBoardForNewLink(board.id),
+      });
+
+      board.bookmarks.forEach((bookmark) => {
+        commandPaletteItems.push({
+          id: `open-link-${bookmark.id}`,
+          label: `Open: ${bookmark.title}`,
+          description: bookmark.url,
+          keywords: `open link ${bookmark.title} ${bookmark.url} ${board.title}`,
+          run: () => openBookmarkUrl(bookmark),
+        });
+      });
+    });
+  }
+
+  const filteredCommandPaletteItems = (() => {
+    const query = commandPaletteQuery.trim().toLowerCase();
+    if (!query) {
+      return commandPaletteItems;
+    }
+
+    return commandPaletteItems.filter((item) =>
+      `${item.label} ${item.description} ${item.keywords}`.toLowerCase().includes(query)
+    );
+  })();
+
+  useEffect(() => {
+    if (commandPaletteIndex >= filteredCommandPaletteItems.length) {
+      setCommandPaletteIndex(0);
+    }
+  }, [commandPaletteIndex, filteredCommandPaletteItems.length]);
+
+  const executeCommandPaletteItem = (item: CommandPaletteItem) => {
+    item.run();
+    setIsCommandPaletteOpen(false);
+    setCommandPaletteQuery('');
+    setCommandPaletteIndex(0);
+  };
+
+  const openUrlInNewTab = (url: string) => {
+    const chromeTabs = (
+      globalThis as {
+        chrome?: {
+          tabs?: {
+            create?: (createProperties: { url?: string; active?: boolean }, callback?: () => void) => void;
+          };
+        };
+      }
+    ).chrome?.tabs;
+
+    if (chromeTabs?.create) {
+      chromeTabs.create({ url, active: true });
+      return;
+    }
+
+    globalThis.open?.(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -1554,22 +2398,21 @@ function App() {
   };
 
   const isBookmarkEditor = editor?.type === 'create-bookmark' || editor?.type === 'edit-bookmark';
+  const canAccessVault = !vaultPasscode || isVaultUnlocked;
 
   return (
     <div className="relative min-h-screen overflow-hidden text-slate-100">
       <div className="pointer-events-none absolute inset-0">
         <motion.div
           key={wallpaper}
-          initial={{ scale: 1.06, opacity: 0.7 }}
-          animate={{ scale: 1, opacity: 0.9 }}
-          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ scale: 1.02, opacity: 0.85 }}
+          animate={{ scale: 1, opacity: 0.95 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${wallpaper})` }}
         />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_18%,rgba(255,106,0,0.18),transparent_40%),radial-gradient(circle_at_76%_78%,rgba(255,106,0,0.12),transparent_44%)]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/90" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-transparent to-black/70" />
-        <div className="absolute inset-0 shadow-[inset_0_0_220px_rgba(0,0,0,0.88)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/65" />
+        <div className="absolute inset-0 shadow-[inset_0_0_120px_rgba(0,0,0,0.45)]" />
       </div>
 
       <div className="relative z-10 flex min-h-screen flex-col">
@@ -1583,38 +2426,80 @@ function App() {
           canDeleteActivePage={pages.length > 1}
         />
 
-        <main className="futuristic-scrollbar flex-1 overflow-y-auto px-4 pb-28 pt-6 sm:px-8 lg:px-12 lg:pb-12 lg:pr-24">
-          <div className="mx-auto w-full max-w-[1440px]">
-            <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3 text-sm text-slate-200">
-                <Sparkles size={15} className="text-[#ff8f3f]" />
-                <span className="font-medium">{activePage.title}</span>
-                <span className="text-slate-400">| {totalBoards} boards</span>
-                <span className="text-slate-400">| {totalLinks} links</span>
-                {searchQuery.trim() ? <span className="text-slate-300">| {visibleLinks} matches</span> : null}
-                {isIncognito ? <span className="text-[#ffb06b]">| Incognito ON</span> : null}
-              </div>
-
+        <main className="futuristic-scrollbar flex-1 overflow-y-auto px-4 pb-16 pt-5 sm:px-8 lg:px-10 lg:pb-10 lg:pr-24">
+          <div className="mx-auto w-full max-w-[1380px]">
+            <div className="mb-4 rounded-xl border border-white/12 bg-black/24 px-3 py-2 backdrop-blur-sm">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleQuickLink}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200 transition-all hover:border-[#ff6a00]/60 hover:text-[#ff9b58]"
-                  title="Add link quickly"
-                >
-                  <Plus size={14} />
-                  Quick Link
-                </button>
+                <Search size={16} className="text-slate-300" />
+                <input
+                  ref={linkSearchInputRef}
+                  value={linkSearchQuery}
+                  onChange={(event) => setLinkSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') {
+                      return;
+                    }
+
+                    const topMatch = linkSearchResults[0];
+                    if (!topMatch) {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    openBookmarkUrl(topMatch.bookmark);
+                  }}
+                  placeholder="Search links and press Enter to open the top match"
+                  className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-400"
+                />
+                {linkSearchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setLinkSearchQuery('')}
+                    className="rounded-md border border-white/10 bg-black/20 p-1.5 text-slate-300 transition-colors hover:border-white/20 hover:bg-white/8"
+                    aria-label="Clear link search"
+                  >
+                    <X size={14} />
+                  </button>
+                ) : null}
               </div>
             </div>
+
+            {linkSearchQuery.trim() ? (
+              <section className="mb-6 rounded-xl border border-white/12 bg-black/24 p-3 backdrop-blur-sm">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Link results
+                </p>
+                {linkSearchResults.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {linkSearchResults.map(({ boardTitle, bookmark }) => (
+                      <button
+                        key={`${boardTitle}-${bookmark.id}`}
+                        type="button"
+                        onClick={() => openBookmarkUrl(bookmark)}
+                        className="inline-flex max-w-full items-center gap-1 rounded-lg border border-white/15 bg-white/6 px-2.5 py-1.5 text-xs text-slate-200 transition-colors hover:border-white/30 hover:bg-white/10"
+                        title={`${bookmark.url} • ${boardTitle}`}
+                      >
+                        {bookmark.pinned ? <Pin size={11} className="text-[#ff9b58]" /> : null}
+                        <span className="max-w-[180px] truncate">{bookmark.title}</span>
+                        <span className="rounded bg-black/30 px-1 py-0.5 text-[10px] text-slate-300">
+                          {boardTitle}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-300">No links found for “{linkSearchQuery.trim()}”.</p>
+                )}
+              </section>
+            ) : null}
 
             {isSearchOpen ? (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-5 flex items-center gap-2 rounded-2xl border border-white/15 bg-black/35 px-3 py-2.5 backdrop-blur-2xl"
+                className="mb-6 flex items-center gap-2 rounded-xl border border-white/12 bg-black/24 px-3 py-2 backdrop-blur-sm"
               >
-                <Search size={16} className="text-[#ff9b58]" />
+                <Search size={16} className="text-slate-300" />
                 <input
                   ref={searchInputRef}
                   value={searchQuery}
@@ -1631,12 +2516,40 @@ function App() {
                       setIsSearchOpen(false);
                     }
                   }}
-                  className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-300 transition-colors hover:bg-white/10"
+                  className="rounded-md border border-white/10 bg-black/20 p-1.5 text-slate-300 transition-colors hover:border-white/20 hover:bg-white/8"
                   aria-label="Close search"
                 >
                   <X size={14} />
                 </button>
               </motion.div>
+            ) : null}
+
+            {!searchQuery.trim() && recentLinks.length > 0 ? (
+              <section className="mb-6">
+                <div className="rounded-xl border border-white/12 bg-black/24 p-3 backdrop-blur-sm">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+                    <History size={13} className="text-[#ff9b58]" />
+                    Recent
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {recentLinks.map(({ usage, bookmark }) => (
+                      <button
+                        key={`recent-${usage.url}`}
+                        type="button"
+                        onClick={() => openBookmarkUrl(bookmark)}
+                        className="inline-flex max-w-full items-center gap-1 rounded-lg border border-white/15 bg-white/6 px-2.5 py-1.5 text-xs text-slate-200 transition-colors hover:border-white/30 hover:bg-white/10"
+                        title={`${bookmark.url} • Opened ${usage.openCount} times`}
+                      >
+                        {bookmark.pinned ? <Pin size={11} className="text-[#ff9b58]" /> : null}
+                        <span className="max-w-[180px] truncate">{bookmark.title}</span>
+                        <span className="rounded bg-black/30 px-1 py-0.5 text-[10px] text-slate-300">
+                          {usage.openCount}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
             ) : null}
 
             <DndContext
@@ -1647,10 +2560,10 @@ function App() {
             >
               <motion.section
                 className={cn(
-                  'grid w-full gap-5',
+                  'grid w-full content-start gap-5',
                   layoutMode === 'grid'
-                    ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
-                    : 'grid-cols-1 xl:grid-cols-2'
+                    ? 'grid-cols-[repeat(auto-fill,minmax(260px,1fr))]'
+                    : 'grid-cols-1'
                 )}
               >
                 {visibleBoards.map((board) => (
@@ -1658,6 +2571,7 @@ function App() {
                     key={board.id}
                     board={board}
                     viewMode={viewMode}
+                    sizePreset={getBoardSizePreset(board.id)}
                     position={getBoardPosition(board.id)}
                     isMinimized={isBoardMinimized(board.id)}
                     compactBlur={compactBlur}
@@ -1668,9 +2582,16 @@ function App() {
                     onAddBookmark={openCreateBookmarkEditor}
                     onRenameBoard={openRenameBoardEditor}
                     onDeleteBoard={handleDeleteBoard}
+                    onBoardSizeChange={handleBoardSizeChange}
+                    onResetBoardSize={handleResetBoardSize}
+                    onToggleBoardPinned={handleToggleBoardPinned}
                     onEditBookmark={openEditBookmarkEditor}
                     onDeleteBookmark={handleDeleteBookmark}
                     onToggleBookmarkFavorite={handleToggleBookmarkFavorite}
+                    onToggleBookmarkPinned={handleToggleBookmarkPinned}
+                    onAttachBookmarkToVault={handleAttachBookmarkToVault}
+                    getBookmarkAttachmentCount={getBookmarkAttachmentCount}
+                    onOpenBookmark={handleOpenBookmark}
                   />
                 ))}
 
@@ -1681,7 +2602,7 @@ function App() {
 
               <DragOverlay>
                 {activeDragLabel ? (
-                  <div className="rounded-xl border border-[#ff6a00]/60 bg-black/80 px-3 py-2 text-sm text-white shadow-[0_0_30px_rgba(255,106,0,0.45)]">
+                  <div className="rounded-lg border border-white/20 bg-black/75 px-3 py-2 text-sm text-slate-100">
                     {activeDragLabel}
                   </div>
                 ) : null}
@@ -1689,7 +2610,7 @@ function App() {
             </DndContext>
 
             {visibleBoards.length === 0 ? (
-              <div className="mt-8 rounded-2xl border border-dashed border-white/20 bg-black/30 p-8 text-center text-sm text-slate-300">
+              <div className="mt-6 rounded-xl border border-dashed border-white/20 bg-black/20 p-6 text-center text-sm text-slate-300">
                 No results for your current filters. Try adjusting search/filter or add a new board.
               </div>
             ) : null}
@@ -1714,7 +2635,6 @@ function App() {
         isCompactView={viewMode === 'compact'}
         isSettingsOpen={isSettingsOpen}
       />
-      <WallpaperButton onWallpaperSelected={handleWallpaperUpload} />
       <TodoPanel
         todos={todos}
         position={todoPosition}
@@ -1725,6 +2645,73 @@ function App() {
         onToggleTodo={handleToggleTodo}
         onDeleteTodo={handleDeleteTodo}
       />
+      {!isVaultVisible || !canAccessVault ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (!canAccessVault) {
+              setIsVaultUnlockModalOpen(true);
+              setToast('Enter vault password');
+              return;
+            }
+
+            setIsVaultVisible(true);
+            setIsVaultMinimized(false);
+          }}
+          className="fixed bottom-4 left-4 z-40 rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:border-white/25 hover:bg-white/10 sm:bottom-5 sm:left-5"
+        >
+          {canAccessVault ? 'Open Vault' : 'Vault Locked'}
+        </button>
+      ) : null}
+
+      <Modal
+        isOpen={isVaultUnlockModalOpen}
+        title="Unlock Vault"
+        description="Enter your vault password to open the vault board."
+        onClose={() => setIsVaultUnlockModalOpen(false)}
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleUnlockVault();
+          }}
+        >
+          <input
+            type="password"
+            value={vaultUnlockDraft}
+            onChange={(event) => setVaultUnlockDraft(event.target.value)}
+            placeholder="Enter vault password"
+            className="w-full rounded-lg border border-white/15 bg-black/25 px-2.5 py-2 text-xs text-slate-100 outline-none transition-colors focus:border-white/30"
+          />
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              className="rounded-lg border border-white/15 bg-white/8 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-white/14"
+            >
+              Unlock
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {isVaultVisible && canAccessVault ? (
+        <VaultPanel
+          key={vaultPrefillDraft?.token ?? 'vault-panel'}
+          entries={vaultEntries}
+          position={vaultPosition}
+          isMinimized={isVaultMinimized}
+          onPositionChange={setVaultPosition}
+          onToggleMinimize={() => setIsVaultMinimized((value) => !value)}
+          onLock={handleVaultHeaderLock}
+          onAddEntry={handleAddVaultEntry}
+          onDeleteEntry={handleDeleteVaultEntry}
+          onOpenWebsite={handleOpenVaultWebsite}
+          onCopyValue={handleCopyVaultValue}
+          prefillDraft={vaultPrefillDraft}
+          onHide={() => setIsVaultVisible(false)}
+        />
+      ) : null}
       <TimeDateCard
         position={clockPosition}
         isMinimized={isClockMinimized}
@@ -1790,6 +2777,83 @@ function App() {
       </Modal>
 
       <Modal
+        isOpen={isCommandPaletteOpen}
+        title="Command Palette"
+        description="Quick actions, page jumps, and instant link opening."
+        onClose={() => setIsCommandPaletteOpen(false)}
+      >
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 rounded-xl border border-white/12 bg-black/30 px-3 py-2">
+            <Command size={15} className="text-[#ff9b58]" />
+            <input
+              ref={commandPaletteInputRef}
+              value={commandPaletteQuery}
+              onChange={(event) => {
+                setCommandPaletteQuery(event.target.value);
+                setCommandPaletteIndex(0);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setCommandPaletteIndex((index) =>
+                    filteredCommandPaletteItems.length === 0
+                      ? 0
+                      : (index + 1) % filteredCommandPaletteItems.length
+                  );
+                }
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setCommandPaletteIndex((index) => {
+                    if (filteredCommandPaletteItems.length === 0) {
+                      return 0;
+                    }
+
+                    return index <= 0 ? filteredCommandPaletteItems.length - 1 : index - 1;
+                  });
+                }
+
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  const item = filteredCommandPaletteItems[commandPaletteIndex];
+                  if (item) {
+                    executeCommandPaletteItem(item);
+                  }
+                }
+              }}
+              placeholder="Type a command or link name..."
+              className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-400"
+            />
+          </div>
+
+          <div className="futuristic-scrollbar max-h-72 space-y-1 overflow-y-auto pr-1">
+            {filteredCommandPaletteItems.length > 0 ? (
+              filteredCommandPaletteItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => executeCommandPaletteItem(item)}
+                  className={cn(
+                    'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                    index === commandPaletteIndex
+                      ? 'border-[#ff6a00]/60 bg-[#ff6a00]/15'
+                      : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                  )}
+                >
+                  <p className="text-sm font-medium text-slate-100">{item.label}</p>
+                  <p className="truncate text-xs text-slate-300">{item.description}</p>
+                </button>
+              ))
+            ) : (
+              <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">
+                No matches. Try another command keyword.
+              </p>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={isSettingsOpen}
         title="Settings"
         description="Import/export your data, sync with Chrome bookmarks, and tune the dashboard."
@@ -1804,6 +2868,19 @@ function App() {
             const file = event.target.files?.[0];
             if (file) {
               void handleImportData(file);
+            }
+            event.target.value = '';
+          }}
+        />
+        <input
+          ref={wallpaperInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              handleWallpaperUpload(file);
             }
             event.target.value = '';
           }}
@@ -1835,6 +2912,15 @@ function App() {
           >
             <FileUp size={16} className="text-[#ff9b58]" />
             Import from Chrome bookmarks
+          </button>
+
+          <button
+            type="button"
+            onClick={() => wallpaperInputRef.current?.click()}
+            className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm text-slate-200 transition-colors hover:bg-white/10"
+          >
+            <Upload size={16} className="text-[#ff9b58]" />
+            Upload wallpaper
           </button>
 
           <button
@@ -1933,6 +3019,60 @@ function App() {
                 className="w-full accent-[#ff6a00]"
               />
             </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">Vault Password</p>
+            <p className="mb-3 text-[11px] text-slate-400">
+              Keep vault hidden and unlock with a password. Stored locally in your browser data.
+            </p>
+
+            <div className="mb-2 flex gap-2">
+              <input
+                type="password"
+                value={vaultPasscodeDraft}
+                onChange={(event) => setVaultPasscodeDraft(event.target.value)}
+                placeholder={vaultPasscode ? 'Change vault password' : 'Set vault password'}
+                className="w-full rounded-lg border border-white/15 bg-black/25 px-2.5 py-2 text-xs text-slate-100 outline-none transition-colors focus:border-white/30"
+              />
+              <button
+                type="button"
+                onClick={handleSaveVaultPasscode}
+                className="rounded-lg border border-white/15 bg-white/8 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-white/14"
+              >
+                {vaultPasscode ? 'Update' : 'Set'}
+              </button>
+            </div>
+
+            {vaultPasscode ? (
+              <>
+                {isVaultUnlocked ? (
+                  <button
+                    type="button"
+                    onClick={handleLockVault}
+                    className="mb-2 rounded-lg border border-white/15 bg-white/8 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-white/14"
+                  >
+                    Lock vault now
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={handleRemoveVaultPasscode}
+                  className="mb-2 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-200 transition-colors hover:bg-red-500/20"
+                >
+                  Remove vault password
+                </button>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleToggleVaultVisibility}
+              className="w-full rounded-lg border border-white/15 bg-white/8 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-white/14"
+            >
+              {isVaultVisible && canAccessVault ? 'Hide vault board' : 'Show vault board'}
+            </button>
           </div>
 
           <button

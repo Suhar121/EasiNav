@@ -1,29 +1,48 @@
-import { motion } from 'framer-motion';
+import { motion, useDragControls } from 'framer-motion';
 import { CirclePlus } from 'lucide-react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 
 interface AddBoardCardProps {
   onClick: () => void;
 }
 
 export function AddBoardCard({ onClick }: AddBoardCardProps) {
+  const dragControls = useDragControls();
+
+  const handleCardPointerDownCapture = (event: ReactPointerEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select, [data-no-card-drag]')) {
+      return;
+    }
+
+    dragControls.start(event);
+  };
+
   return (
-    <motion.button
-      type="button"
-      whileHover={{ scale: 1.04, y: -2 }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.18 }}
-      onClick={onClick}
-      className="group flex min-h-[220px] w-full flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-white/28 bg-black/20 p-6 backdrop-blur-xl transition-all duration-300 hover:border-[#ff6a00]/70 hover:bg-[#ff6a00]/10 hover:shadow-[0_0_50px_rgba(255,106,0,0.35)]"
+    <motion.article
+      drag
+      dragElastic={0.01}
+      dragListener={false}
+      dragControls={dragControls}
+      dragMomentum={false}
+      whileDrag={{ scale: 1.015, zIndex: 90 }}
+      onPointerDownCapture={handleCardPointerDownCapture}
+      style={{ touchAction: 'none' }}
+      className="group relative flex min-h-[220px] w-full flex-col items-center justify-center rounded-2xl border border-dashed border-white/22 bg-black/22 p-3 backdrop-blur-sm transition-[border-color,background-color] duration-200 hover:border-white/34 hover:bg-white/7 will-change-transform"
       data-dnd-item="add-board"
-      aria-label="Add board"
     >
-      <CirclePlus
-        size={34}
-        className="text-slate-200/95 transition-all duration-300 group-hover:text-[#ff8f3f] group-hover:drop-shadow-[0_0_14px_rgba(255,106,0,0.75)]"
-      />
-      <span className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-100/90 group-hover:text-[#ff9b58]">
-        Add Board
-      </span>
-    </motion.button>
+      <button
+        type="button"
+        data-no-card-drag
+        onClick={onClick}
+        className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6a00]/70"
+        aria-label="Add board"
+      >
+        <CirclePlus size={30} className="text-slate-300 transition-colors duration-200 group-hover:text-slate-100" />
+        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 group-hover:text-slate-100">
+          Add Board
+        </span>
+      </button>
+    </motion.article>
   );
 }

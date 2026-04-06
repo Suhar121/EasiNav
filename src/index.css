@@ -4,6 +4,18 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --bg: oklch(0.14 0.02 264);
+    --bg-soft: oklch(0.18 0.03 264);
+    --surface: oklch(0.22 0.03 264 / 70%);
+    --surface-strong: oklch(0.26 0.04 264 / 84%);
+    --text: oklch(0.94 0.01 264);
+    --text-muted: oklch(0.77 0.03 264);
+    --accent: oklch(0.72 0.17 42);
+    --accent-soft: oklch(0.64 0.13 42 / 35%);
+    --ring: oklch(0.8 0.15 42 / 70%);
+    --radius-sm: 0.6rem;
+    --radius-md: 0.8rem;
+    --radius-lg: 1rem;
   }
 
   * {
@@ -19,24 +31,49 @@
   body {
     margin: 0;
     overflow: hidden;
-    background: #050507;
-    color: #f4f5f7;
+    background:
+      radial-gradient(1200px circle at 12% 12%, oklch(0.35 0.07 286 / 25%), transparent 52%),
+      radial-gradient(900px circle at 84% 22%, oklch(0.42 0.1 45 / 28%), transparent 58%),
+      linear-gradient(145deg, var(--bg), var(--bg-soft));
+    color: var(--text);
     font-family: 'Space Grotesk', 'Sora', 'Segoe UI', sans-serif;
+    font-size: clamp(0.95rem, 0.23vw + 0.9rem, 1.05rem);
+    line-height: 1.45;
     letter-spacing: 0.01em;
     text-rendering: geometricPrecision;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+    letter-spacing: 0.01em;
+  }
+
   a {
     color: inherit;
     text-decoration: none;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }
 
 .futuristic-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 106, 0, 0.5) rgba(255, 255, 255, 0.08);
+  scrollbar-color: oklch(0.7 0.03 264 / 55%) oklch(0.35 0.03 264 / 35%);
 }
 
 .futuristic-scrollbar::-webkit-scrollbar {
@@ -45,12 +82,27 @@
 
 .futuristic-scrollbar::-webkit-scrollbar-track {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: oklch(0.35 0.03 264 / 40%);
 }
 
 .futuristic-scrollbar::-webkit-scrollbar-thumb {
   border-radius: 999px;
   border: 2px solid transparent;
-  background: linear-gradient(180deg, rgba(255, 106, 0, 0.9), rgba(255, 106, 0, 0.45));
+  background: linear-gradient(
+    180deg,
+    oklch(0.74 0.03 264 / 90%),
+    oklch(0.62 0.03 264 / 45%)
+  );
   background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

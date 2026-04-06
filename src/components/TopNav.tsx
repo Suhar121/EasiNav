@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { MoreVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { PageType } from '../types';
 import { cn } from '../utils/cn';
 
@@ -22,72 +23,110 @@ export function TopNav({
   onDeleteActivePage,
   canDeleteActivePage,
 }: TopNavProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isMenuOpen]);
+
   return (
-    <header className="px-4 pt-5 sm:px-8 sm:pt-7 lg:px-12">
-      <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 rounded-[24px] border border-white/10 bg-black/35 px-3 py-3 backdrop-blur-2xl shadow-[0_12px_60px_rgba(0,0,0,0.4)] sm:px-4">
-        <nav className="futuristic-scrollbar flex items-center gap-2 overflow-x-auto pb-1">
+    <header className="px-4 pt-4 sm:px-8 sm:pt-5 lg:px-10">
+      <div className="mx-auto flex max-w-[1380px] items-center justify-between gap-4 rounded-2xl border border-white/12 bg-black/26 px-3 py-2 backdrop-blur-sm sm:px-4">
+        <nav className="futuristic-scrollbar flex items-center gap-2 overflow-x-auto py-0.5">
           {pages.map((page) => {
             const isActive = page.id === activePageId;
 
             return (
               <motion.button
                 key={page.id}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.96 }}
-                transition={{ duration: 0.18 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.22 }}
                 onClick={() => onPageSelect(page.id)}
                 className={cn(
-                  'relative shrink-0 rounded-full border px-5 py-2.5 text-sm font-semibold tracking-wide transition-all duration-300',
+                  'relative shrink-0 rounded-xl border px-5 py-2 text-sm font-semibold transition-all duration-200',
                   isActive
-                    ? 'border-[#ff6a00]/70 bg-[#ff6a00] text-black shadow-[0_0_24px_rgba(255,106,0,0.6)]'
-                    : 'border-white/10 bg-white/5 text-slate-300 hover:border-white/25 hover:bg-white/12 hover:text-white'
+                    ? 'border-white/25 bg-white/82 text-zinc-900'
+                    : 'border-white/10 bg-black/25 text-slate-300 hover:border-white/20 hover:bg-white/10 hover:text-slate-100'
                 )}
               >
                 {page.title}
               </motion.button>
             );
           })}
-        </nav>
-
-        <div className="flex items-center gap-2">
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.93 }}
-            onClick={onRenameActivePage}
-            className="group flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-slate-200 backdrop-blur-xl transition-all duration-300 hover:border-[#ff6a00]/60 hover:bg-[#ff6a00]/20 hover:text-white"
-            aria-label="Rename page"
-            title="Rename page"
-          >
-            <Pencil size={16} />
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.93 }}
-            onClick={onDeleteActivePage}
-            disabled={!canDeleteActivePage}
-            className={cn(
-              'group flex h-10 w-10 shrink-0 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-300',
-              canDeleteActivePage
-                ? 'border-white/20 bg-white/10 text-slate-200 hover:border-red-400/60 hover:bg-red-500/20 hover:text-red-200'
-                : 'cursor-not-allowed border-white/10 bg-white/5 text-slate-500'
-            )}
-            aria-label="Delete page"
-            title={canDeleteActivePage ? 'Delete page' : 'At least one page is required'}
-          >
-            <Trash2 size={16} />
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
+            whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.93 }}
             onClick={onAddPage}
-            className="group flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-slate-200 backdrop-blur-xl transition-all duration-300 hover:border-[#ff6a00]/60 hover:bg-[#ff6a00]/20 hover:text-white hover:shadow-[0_0_24px_rgba(255,106,0,0.45)]"
+            className="group flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-black/25 text-slate-200 transition-colors duration-200 hover:border-white/28 hover:bg-white/12 hover:text-white"
             aria-label="Add page"
             title="Add page"
           >
-            <Plus size={20} className="transition-transform duration-300 group-hover:rotate-90" />
+            <Plus size={18} className="transition-transform duration-300 group-hover:rotate-90" />
           </motion.button>
+        </nav>
+
+        <div className="relative" ref={menuRef}>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.94 }}
+            onClick={() => setIsMenuOpen((current) => !current)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-black/25 text-slate-300 transition-colors duration-200 hover:border-white/24 hover:bg-white/10 hover:text-slate-100"
+            aria-label="Page options"
+            title="Page options"
+          >
+            <MoreVertical size={16} />
+          </motion.button>
+
+          {isMenuOpen ? (
+            <div className="absolute right-0 top-11 z-50 w-44 rounded-xl border border-white/14 bg-black/80 p-1.5 backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => {
+                  onRenameActivePage();
+                  setIsMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-white/10"
+              >
+                <Pencil size={14} />
+                Rename page
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (canDeleteActivePage) {
+                    onDeleteActivePage();
+                  }
+                  setIsMenuOpen(false);
+                }}
+                disabled={!canDeleteActivePage}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                  canDeleteActivePage
+                    ? 'text-red-200 hover:bg-red-500/15'
+                    : 'cursor-not-allowed text-slate-500'
+                )}
+              >
+                <Trash2 size={14} />
+                Delete page
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </header>
